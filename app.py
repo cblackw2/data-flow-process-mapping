@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import graphviz
+from streamlit_agraph import agraph, Node, Edge, Config
 
 # -------------------------------------------------------
 # Helper Functions
@@ -28,7 +29,7 @@ def process_excel_file(uploaded_file):
     "Use Case/Scenario", "Functional Area", "DCL", "Where data is sourced from",
     "Platform used to aggregate data", "Platform used to analyze data",
     "Platform used to publish curated data", and "compliance")
-    and returns the first row as a dictionary.
+    and returns the DataFrame.
     """
     df = pd.read_excel(uploaded_file)
     if df.empty:
@@ -42,22 +43,11 @@ def process_excel_file(uploaded_file):
     if not all(col in df.columns for col in required_columns):
         st.error(f"Excel file must contain the following columns: {', '.join(required_columns)}")
         return None
-    # For simplicity, use the first row of data:
-    row = df.iloc[0]
-    return {
-        "use_case": row["Use Case/Scenario"],
-        "functional_area": row["Functional Area"],
-        "dcl": row["DCL"],
-        "data_source": row["Where data is sourced from"],
-        "platform_aggregate": row["Platform used to aggregate data"],
-        "platform_analyze": row["Platform used to analyze data"],
-        "platform_publish": row["Platform used to publish curated data"],
-        "compliance": row["compliance"]
-    }
+    return df
 
 def build_dot_diagram(data):
     """
-    Constructs a simple Graphviz DOT diagram using the input data.
+    Constructs a simple static Graphviz DOT diagram using the input data.
     The "use case" is treated as the root node and each additional parameter 
     is added as a child node.
     """
@@ -86,6 +76,32 @@ def build_dot_diagram(data):
     
     return dot
 
+def build_dynamic_diagram(data):
+    """
+    Constructs a dynamic, interactive diagram using streamlit-agraph.
+    Each parameter is represented as a node, and all are connected to the root node.
+    """
+    nodes = []
+    edges = []
+    
+    # Root node: Use Case/Scenario
+    nodes.append(Node(id="UC", label=data["use_case"], size=500, shape="circle", color="#FF5733"))
+    
+    # Parameter nodes with labels
+    nodes.append(Node(id="FA", label="Functional Area: " + str(data["functional_area"]), size=300, shape="box", color="#3498db"))
+    nodes.append(Node(id="DCL", label="DCL: " + str(data["dcl"]), size=300, shape="box", color="#2ecc71"))
+    nodes.append(Node(id="DS", label="Data Source: " + str(data["data_source"]), size=300, shape="box", color="#9b59b6"))
+    nodes.append(Node(id="PA", label="Platform Aggregate: " + str(data["platform_aggregate"]), size=300, shape="box", color="#e67e22"))
+    nodes.append(Node(id="PAn", label="Platform Analyze: " + str(data["platform_analyze"]), size=300, shape="box", color="#e74c3c"))
+    nodes.append(Node(id="PP", label="Platform Publish: " + str(data["platform_publish"]), size=300, shape="box", color="#f1c40f"))
+    nodes.append(Node(id="C", label="Compliance: " + str(data["compliance"]), size=300, shape="box", color="#34495e"))
+    
+    # Create directed edges from the use case to each parameter node
+    for node_id in ["FA", "DCL", "DS", "PA", "PAn", "PP", "C"]:
+        edges.append(Edge(source="UC", target=node_id, label="relates to", color="#7f8c8d"))
+    
+    return nodes, edges
+
 # -------------------------------------------------------
 # Main Application
 # -------------------------------------------------------
@@ -98,7 +114,7 @@ def main():
     
     with st.form(key="data_form"):
         if input_method == "Manual Input":
-            # Updated manual input fields
+            # Manual input fields with new headers
             use_case = st.text_input("Use Case/Scenario", "Customer Order Processing")
             functional_area = st.text_input("Functional Area", "Sales")
             dcl = st.text_input("DCL", "Level 1")
@@ -106,7 +122,7 @@ def main():
             platform_aggregate = st.text_input("Platform used to aggregate data", "Data Warehouse")
             platform_analyze = st.text_input("Platform used to analyze data", "BI Tool")
             platform_publish = st.text_input("Platform used to publish curated data", "Reporting Dashboard")
-            compliance = st.text_input("Compliance", "GDPR Compliant")
+            compliance = st.text_input("compliance", "GDPR Compliant")
         else:
             # File uploader for Excel mode
             uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx", "xls"])
@@ -125,17 +141,63 @@ def main():
             if uploaded_file is None:
                 st.error("Please upload an Excel file.")
             else:
-                input_data = process_excel_file(uploaded_file)
+                df = process_excel_file(uploaded_file)
+                if df is not None:
+                    if len(df) > 1:
+                        st.write(f"Found {len(df)} use cases in the uploaded file.")
+                        # Display a select box to choose a use case row
+                        selected_index = st.selectbox(
+                            "Select a Use Case",
+                            options=df.index,
+                            format_func=lambda i: df.loc[i, "Use Case/Scenario"]
+                        )
+                        row = df.loc[selected_index]
+                        input_data = {
+                            "use_case": row["Use Case/Scenario"],
+                            "functional_area": row["Functional Area"],
+                            "dcl": row["DCL"],
+                            "data_source": row["Where data is sourced from"],
+                            "platform_aggregate": row["Platform used to aggregate data"],
+                            "platform_analyze": row["Platform used to analyze data"],
+                            "platform_publish": row["Platform used to publish curated data"],
+                            "compliance": row["compliance"]
+                        }
+                    else:
+                        row = df.iloc[0]
+                        input_data = {
+                            "use_case": row["Use Case/Scenario"],
+                            "functional_area": row["Functional Area"],
+                            "dcl": row["DCL"],
+                            "data_source": row["Where data is sourced from"],
+                            "platform_aggregate": row["Platform used to aggregate data"],
+                            "platform_analyze": row["Platform used to analyze data"],
+                            "platform_publish": row["Platform used to publish curated data"],
+                            "compliance": row["compliance"]
+                        }
         
         if input_data:
             st.success("Input data processed successfully!")
             st.write("### Processed Input Data:")
             st.json(input_data)
             
-            # Build and display the data flow diagram
+            # Build and display the static data flow diagram
             dot_diagram = build_dot_diagram(input_data)
-            st.write("### Data Flow Diagram")
+            st.write("### Static Data Flow Diagram")
             st.graphviz_chart(dot_diagram.source)
+            
+            # Build and display the dynamic interactive diagram using streamlit-agraph
+            st.write("### Dynamic Data Flow Diagram")
+            nodes, edges = build_dynamic_diagram(input_data)
+            config = Config(
+                width=800, 
+                height=600, 
+                directed=True, 
+                nodeHighlightBehavior=True,
+                collapsible=False, 
+                node={'labelProperty': 'label'}, 
+                link={'labelProperty': 'label'}
+            )
+            agraph(nodes=nodes, edges=edges, config=config)
 
 if __name__ == "__main__":
     main()
